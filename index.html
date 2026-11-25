@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>구룡성채 수리점 VR</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0a09; color: #e9dcc2; font-family: Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; overflow: hidden; }
+  canvas { display: block; }
+  #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px; text-align: center; background: rgba(11, 10, 9, .72); }
+  #start[hidden] { display: none; }
+  h1 { margin: 0; font-size: 34px; color: #e9a94a; }
+  p { margin: 0; line-height: 1.7; }
+  button { font: inherit; padding: 12px 22px; border: 1px solid #e9a94a; background: #2a1d0e; color: #ffd79a; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #where { position: fixed; left: 16px; top: 14px; }
+  #hint { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); }
+  #dot { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #ffd79a; opacity: .7; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="where"></div><div id="dot"></div><div id="hint"></div>
+<div id="start">
+  <h1>구룡성채 수리점</h1>
+  <p id="load">불러오는 중…</p>
+  <button id="play" disabled>PC로 둘러보기</button>
+  <p>PC: WASD 이동 · 마우스 시점 · E 또는 클릭 집기/놓기 · Esc 나가기<br>
+  VR: 왼쪽 스틱 이동 · 오른쪽 스틱 돌기 · 방아쇠로 바닥을 가리켜 순간이동 · 옆 버튼(그립)으로 물건·부품 집기</p>
+  <p><a href="credits.html" style="color:#e9a94a">에셋 크레딧</a></p>
+</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>
