@@ -12,7 +12,7 @@ export const RULES = {
 const V = a => new THREE.Vector3(...a);
 
 export class Game {
-  /** env: { scene, map, customerModel, say, addBag, takeOut, feet, isBusy } */
+  /** env: { scene, map, customerModel, phoneModel, say, addBag, feet, isBusy } */
   constructor(env) {
     Object.assign(this, env);
     this.codes = Object.keys(GUNS);
@@ -28,13 +28,13 @@ export class Game {
     this.reset();
   }
 
-  reset() {
+  /** keep = 자금은 남기고 다시 (체포·탈출) */
+  reset(keep = false) {
     for (const c of this.customers) c.remove();
     this.customers = [];
-    this.money = 0;
+    this.money = keep ? this.money : 0;
     this.trust = 60;
     this.warnings = 0;
-    this.suspicion = 0;
     this.sold = 0;
     this.stock = [];
     this.call = null;
@@ -48,21 +48,13 @@ export class Game {
 
   // ---------- 전화기 (카운터 위) ----------
   buildPhone() {
-    const mat = new THREE.MeshLambertMaterial({ color: 0x7a2f24 }), metal = new THREE.MeshLambertMaterial({ color: 0xc9b98f });
     const p = this.phone = new THREE.Group();
-    const add = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); p.add(o); return o; };
-    add(new THREE.CylinderGeometry(0.09, 0.14, 0.1, 4, 1).rotateY(Math.PI / 4), mat, 0, 0.05, 0).scale.set(1.15, 1, 1);
-    const dial = add(new THREE.CylinderGeometry(0.055, 0.055, 0.012, 24), metal, 0, 0.075, 0.075);
-    dial.rotation.x = 0.95;
-    this.handset = new THREE.Group();
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.2, 10).rotateZ(Math.PI / 2), mat);
-    bar.position.y = 0.02;
-    this.handset.add(bar);
-    for (const x of [-0.1, 0.1]) { const e = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.036, 0.04, 14), mat); e.position.x = x; this.handset.add(e); }
-    this.handset.position.y = 0.13;
-    p.add(this.handset);
+    const look = this.phoneModel;
+    look.rotation.y = Math.PI;                    // 다이얼이 가게 안쪽(주인)을 보게
+    look.traverse(o => { if (o.isMesh) { o.material.metalness = 0; o.material.roughness = 0.5; o.material.emissive?.set(0x161412); } });
+    this.handset = look.getObjectByName('handset');
+    p.add(look);
     p.position.set(-0.6, this.map.bags[1], -7.42);
-    p.rotation.y = Math.PI / 2;
     this.scene.add(p);
     this.phonePanel = makePanel(0.8, 0.34, 640);
     this.phonePanel.position.set(0, 0.5, 0);
@@ -111,17 +103,25 @@ export class Game {
     this.addTrust(-trust);
     if (this.warnings >= RULES.maxWarnings) this.end('세 번째 실패로 조직에게 버림받았다');
   }
-  end(reason) {
+  end(text, title = '게임 오버', win = false) {
     if (this.over) return;
-    this.over = reason;
+    this.over = { title, text, win };
     this.call = null;
     this.phonePanel.visible = false;
-    sound('bad');
+    sound(win ? 'good' : 'bad');
+  }
+  /** 급습: 의뢰와 손님을 모두 치운다 */
+  onRaid() {
+    this.call = null;
+    this.phonePanel.visible = false;
+    this.pending = [];
+    for (const c of this.customers) c.remove();
+    this.customers = [];
   }
 
   assembled(code) {
     this.money += RULES.assemblyPay;
-    this.suspicion += 30;
+    this.suspect(30);
     this.say(`'${code}' 완성 · HK$ ${RULES.assemblyPay} · 총기 보관함에 넣으세요`, 'good');
   }
 
@@ -174,7 +174,7 @@ export class Game {
   deliver(c, code) {
     if (c.code === code) {
       this.money += RULES.salePay;
-      this.suspicion += 25;
+      this.suspect(25);
       this.sold++;
       sound('good');
       this.say(`판매 성공 · HK$ ${RULES.salePay}`, 'good');
@@ -192,7 +192,7 @@ export class Game {
       c.left -= dt;
       c.beat -= dt;
       if (c.beat <= 0) { c.beat = 1.6; sound('ring'); }
-      this.handset.position.y = 0.13 + (c.beat > 0.8 ? Math.abs(Math.sin(this.pulse * 40)) * 0.012 : 0);
+      this.handset.position.y = c.beat > 0.8 ? Math.abs(Math.sin(this.pulse * 40)) * 0.012 : 0;
       this.phonePanel.visible = true;
       const eye = this.viewer();
       this.phonePanel.lookAt(eye.x, this.phonePanel.getWorldPosition(new THREE.Vector3()).y, eye.z);
@@ -205,12 +205,13 @@ export class Game {
         this.addTrust(-RULES.miss);
         this.planCall();
       }
-    } else if (!this.isBusy()) {          // 지하에 있거나 조립하는 동안은 울리지 않는다
+    } else if (!this.isBusy() && !this.isRaid()) {          // 지하에 있거나 조립하는 동안은 울리지 않는다
       this.nextCall -= dt;
       if (this.nextCall <= 0) this.ring();
     }
     // 곧 올 가방·손님
     for (const p of [...this.pending]) {
+      if (p.what === 'customer' && p.in < 0.1 && this.shopClosed()) { p.late = (p.late ?? 0) + dt; if (p.late > 60) { this.pending.splice(this.pending.indexOf(p), 1); this.fail('셔터가 닫혀 손님이 돌아갔다'); } continue; }
       p.in -= dt;
       if (p.in > 0) continue;
       this.pending.splice(this.pending.indexOf(p), 1);
@@ -231,10 +232,13 @@ export class Game {
   /** 지금 할 일 (손목·화면 안내) */
   todo() {
     if (this.over) return '';
+    const run = this.policeTodo();
+    if (run) return run;
     if (this.call) return '전화를 받으세요';
     const job = this.assembling();
     if (job) return job;
     const c = this.customers.find(x => x.state !== 'leaving') ?? this.pending.find(p => p.what === 'customer');
+    if (c && this.shopClosed() && !c.group) return '셔터를 올려 손님을 받으세요';
     if (c) return this.heldGuns().includes(c.code) ? `손님에게 '${c.code}' 건네기` : this.stock.includes(c.code) ? `보관함에서 '${c.code}' 꺼내기` : `'${c.code}' 총이 필요하다`;
     if (this.heldGuns().length) return '총을 보관함에 넣기';
     if (this.bagCount()) return '부품 가방을 비밀 작업대로';
