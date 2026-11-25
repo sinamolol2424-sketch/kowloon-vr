@@ -14,7 +14,8 @@
   button { font: inherit; padding: 12px 22px; border: 1px solid #e9a94a; background: #2a1d0e; color: #ffd79a; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
   #where { position: fixed; left: 16px; top: 14px; }
-  #hint { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); }
+  #status { position: fixed; right: 16px; top: 14px; text-align: right; white-space: pre-line; line-height: 1.6; }
+  #hint { width: max-content; max-width: 90vw; text-align: center; position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); }
   #dot { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #ffd79a; opacity: .7; }
 </style>
 <script type="importmap">
@@ -22,14 +23,13 @@
 </script>
 </head>
 <body>
-<div id="where"></div><div id="dot"></div><div id="hint"></div>
+<div id="where"></div><div id="status"></div><div id="dot"></div><div id="hint"></div>
 <div id="start">
   <h1>구룡성채 수리점</h1>
   <p id="load">불러오는 중…</p>
   <button id="play" disabled>PC로 둘러보기</button>
-  <p>PC: WASD 이동 · 마우스 시점 · E 또는 클릭 집기/놓기 · Esc 나가기<br>
-  VR: 왼쪽 스틱 이동 · 오른쪽 스틱 돌기 · 방아쇠로 바닥을 가리켜 순간이동 · 옆 버튼(그립)으로 물건·부품 집기</p>
-  <p><a href="credits.html" style="color:#e9a94a">에셋 크레딧</a></p>
+  <p>PC: WASD 이동 · 마우스 시점 · E 또는 클릭 집기/놓기/전화 받기 · Y 전화 받기 · Esc 나가기<br>
+  VR: 왼쪽 스틱 이동 · 오른쪽 스틱 돌기 · 방아쇠로 바닥을 가리켜 순간이동 · 옆 버튼(그립)으로 물건·부품·수화기 집기 · 왼손 X 설정</p><p><a href="credits.html" style="color:#e9a94a">에셋 크레딧</a></p>
 </div>
 <script type="module" src="main.js"></script>
 </body>

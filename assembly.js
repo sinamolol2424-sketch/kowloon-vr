@@ -31,6 +31,8 @@ export class Bench {
     this.idle();
   }
 
+  /** 조립판을 높인다 (VR 설정) */
+  raise(h) { this.stage.position.y = this.origin.y + h; }
   get active() { return this.parts.length > 0; }
   near(p) { return Math.hypot(p.x - this.origin.x, p.z - this.origin.z) < 1.5 && Math.abs(p.y - this.origin.y) < 1.3; }
   idle() { this.panel.userData.set([{ text: '총기 조립 작업대', size: 44, bold: true }, { text: '부품 가방을 여기에 내려놓으세요', size: 34 }]); }
@@ -43,6 +45,15 @@ export class Bench {
       return root;
     });
     return (await this.cache[file]).clone();
+  }
+
+  /** 조립이 끝난 총 하나 (보관함에서 꺼낼 때). 원점 = 총 한가운데 */
+  async whole(code) {
+    const look = await this.model(code), gun = new THREE.Group();
+    look.scale.setScalar(GUNS[code].scale);
+    look.position.copy(new THREE.Box3().setFromObject(look).getCenter(new THREE.Vector3()).negate());
+    gun.add(look);
+    return gun;
   }
 
   /** 플레이어가 선 쪽을 앞으로 해서 부품을 늘어놓는다 */
@@ -181,7 +192,6 @@ export class Bench {
     const code = this.code;
     this.clear();
     sound('bad');
-    this.say('시간 초과 · 부품을 못 쓰게 됐다', 'bad');
     this.onFail(code);
   }
 
@@ -199,9 +209,8 @@ export class Bench {
     for (const p of this.parts) gun.attach(p.body);
     this.parts = [];
     this.clear();
-    this.panel.userData.set([{ text: `${code} 완성!`, size: 52, bold: true, color: '#9dff8a' }, { text: '총을 집어 들 수 있다', size: 32 }], '#9dff8a');
+    this.panel.userData.set([{ text: `${code} 완성!`, size: 52, bold: true, color: '#9dff8a' }, { text: '총을 집어 총기 보관함에 넣으세요', size: 32 }], '#9dff8a');
     sound('good');
-    this.say(`'${code}' ${GUNS[code].title} 조립 완료`, 'good');
     this.onDone(code, gun);
   }
 

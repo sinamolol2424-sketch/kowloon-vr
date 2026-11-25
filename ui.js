@@ -44,7 +44,7 @@ export function sound(kind) {
   try {
     audio ??= new AudioContext();
     if (audio.state === 'suspended') audio.resume();
-    const notes = { snap: [[900, 0, 0.05], [420, 0.03, 0.06]], pick: [[300, 0, 0.04]], good: [[520, 0, 0.12], [660, 0.12, 0.12], [880, 0.24, 0.25]], bad: [[220, 0, 0.2], [160, 0.18, 0.3]] }[kind];
+    const notes = { snap: [[900, 0, 0.05], [420, 0.03, 0.06]], pick: [[300, 0, 0.04]], good: [[520, 0, 0.12], [660, 0.12, 0.12], [880, 0.24, 0.25]], ring: [[1250, 0, 0.09], [980, 0.1, 0.09], [1250, 0.2, 0.09], [980, 0.3, 0.09], [1250, 0.4, 0.09], [980, 0.5, 0.12]], bad: [[220, 0, 0.2], [160, 0.18, 0.3]] }[kind];
     for (const [f, at, len] of notes) {
       const o = audio.createOscillator(), g = audio.createGain();
       o.type = kind === 'snap' ? 'square' : 'triangle';
