@@ -45,12 +45,12 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/'));
 let map, floor, portals = [];
 const grabbables = [];       // 손에 들 수 있는 것: userData.kind = 'bag' | 'gun'
-let bench = null, bagModel = null, game = null, nav = null, police = null, shutter = null;
+let bench = null, bagModel = null, game = null, nav = null, police = null, shutter = null, solid = null;
 
 function bakedMaterial(m, mesh) {
   const lit = new THREE.MeshBasicMaterial({ map: m.map, color: m.color, side: m.side, transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest, vertexColors: !!mesh.geometry.attributes.color });
   if (lit.vertexColors) lit.color.multiplyScalar(LIGHT);
-  if (m.emissive.getHex() !== 0 && (!m.emissiveMap || /CRT|Neon|Win_|Bulb/.test(m.name))) {        // 전구·네온·화면은 스스로 빛난다
+  if (m.emissive && m.emissive.getHex() !== 0 && (!m.emissiveMap || /CRT|Neon|Win_|Bulb/.test(m.name))) {        // 전구·네온·화면은 스스로 빛난다
     lit.vertexColors = false;
     lit.color.copy(m.emissive);
     lit.map = m.emissiveMap || m.map;
@@ -69,6 +69,7 @@ async function load() {
   const shop = await loader.loadAsync('assets/shop.glb', e => { $('load').textContent = `불러오는 중… ${e.total ? Math.round(e.loaded / e.total * 100) : 0}%`; });
   shop.scene.traverse(o => { if (o.isMesh) { o.userData.baseName = o.material.name; o.material = bakedMaterial(o.material, o); o.matrixAutoUpdate = false; o.updateMatrix(); } });
   scene.add(shop.scene);
+  solid = shop.scene;
 
   bagModel = (await loader.loadAsync('assets/briefcase.glb')).scene;
   bench = new Bench({
@@ -98,6 +99,7 @@ async function load() {
     scene, nav, shutter, game, say, feet, model: (await loader.loadAsync('assets/police.glb')).scene,
     stairs: map.stairs.filter(s => groundAt(new THREE.Vector3(...s.to), 1.5) !== null),
     eye: () => camera.getWorldPosition(new THREE.Vector3()),
+    evidence: lyingEvidence,
     handsBusy: () => !!held || hands.some(h => h.held),
     onRaid: () => { game.onRaid(); if (heldPart) { bench.release(heldPart); heldPart = null; } for (const h of hands) if (h.part) h.letGo(); bench.clear(); },
     setOver: (title, text, win) => game.end(text, title, win),
@@ -444,13 +446,18 @@ function tickPart(dt) {
   p.body.position.lerp(want.sub(p.offset), k);
   p.body.quaternion.slerp(p.target.quat, k);
 }
+/** 경찰 눈에 띄면 안 되는데 바닥·선반에 놓인 것: 총, 카운터 밖의 부품 가방 (7층) */
+function lyingEvidence() {
+  return grabbables.filter(g => g.parent === scene && g.position.y > 20
+    && (g.userData.kind === 'gun' || Math.hypot(g.position.x + 0.64, g.position.z + 8.46) > 1.5)).map(g => g.position);
+}
 /** 놓으면 아래 물건(카운터·작업대·바닥) 위에 내려앉는다 */
 function drop(g) {
   scene.attach(g);
   const p = g.getWorldPosition(new THREE.Vector3());
   ray.set(p.clone().setY(p.y + 0.12), down);
   ray.far = 4;
-  const hit = ray.intersectObjects(scene.children.filter(c => c !== g && c !== rig && !grabbables.includes(c)), true)[0];
+  const hit = ray.intersectObject(solid, true)[0];          // 사람·부채꼴·글자판에는 얹히지 않는다
   ray.far = Infinity;
   const turn = new THREE.Euler().setFromQuaternion(g.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
   g.rotation.set(g.userData.kind === 'gun' ? -Math.PI / 2 : 0, turn, 0, 'YXZ');      // 총은 옆으로 눕힌다

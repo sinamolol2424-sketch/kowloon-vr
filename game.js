@@ -54,7 +54,8 @@ export class Game {
     look.traverse(o => { if (o.isMesh) { o.material.metalness = 0; o.material.roughness = 0.5; o.material.emissive?.set(0x161412); } });
     this.handset = look.getObjectByName('handset');
     p.add(look);
-    p.position.set(-0.6, this.map.bags[1], -7.42);
+    p.position.set(-0.4, this.map.bags[1], -7.66);        // 카운터 안쪽
+    p.scale.setScalar(1.2);
     this.scene.add(p);
     this.phonePanel = makePanel(0.8, 0.34, 640);
     this.phonePanel.position.set(0, 0.5, 0);

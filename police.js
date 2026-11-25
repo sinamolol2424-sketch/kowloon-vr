@@ -169,7 +169,7 @@ export class Police {
     this.cut = 0;
     this.siren = 0;
     const post = (route, start) => { const c = new Cop(this, route[start].p); Object.assign(c, { route, at: start, wait: start ? 0 : 1 }); this.cops.push(c); };
-    if (this.phase === 1) { post(ROUTES.watch, 0); this.say('경찰 감시 시작 · 총·가방을 든 채 보이면 체포된다', 'bad'); }
+    if (this.phase === 1) { post(ROUTES.watch, 0); this.say('경찰 감시 시작 · 총·가방을 들고 있거나 밖에 놓아두면 체포된다', 'bad'); }
     if (this.phase === 2) { post(ROUTES.patrol, 0); this.say('경찰 순찰 시작 · 매장 안까지 들어온다. 셔터를 내리면 막을 수 있다', 'bad'); }
     if (this.phase === 3) {
       this.siren = POLICE.siren;
@@ -209,7 +209,9 @@ export class Police {
       }
       if (c.path && c.step(dt)) { c.at = c.next; c.path = null; c.wait = Math.max(0.05, c.route[c.at].wait); }
     }
-    const seen = this.handsBusy() && c.sees(me);
+    const holding = this.handsBusy() && c.sees(me), lying = !holding && this.evidence().find(p => c.sees(p));
+    const seen = holding || !!lying;
+    if (lying) c.look(lying, dt * 0.6);
     c.spot = THREE.MathUtils.clamp(c.spot + (seen ? dt : -dt * 0.8), 0, POLICE.spotTime);
     c.body.panel.visible = c.spot > 0.05;
     if (c.body.panel.visible) {
@@ -217,7 +219,7 @@ export class Police {
       c.body.panel.lookAt(eye.x, c.body.panel.getWorldPosition(new THREE.Vector3()).y, eye.z);
       c.body.panel.userData.set([{ text: '거기 그거 뭐야!', size: 60, bold: true, color: '#ff7b5c' }], '#ff7b5c');
     }
-    if (c.spot >= POLICE.spotTime) this.setOver('체포', '총이나 부품 가방을 든 채 경찰에게 들켰다');
+    if (c.spot >= POLICE.spotTime) this.setOver('체포', holding ? '총이나 부품 가방을 든 채 경찰에게 들켰다' : '떨어져 있던 총이나 부품 가방을 경찰이 발견했다');
   }
 
   tickRaid(dt, me) {
