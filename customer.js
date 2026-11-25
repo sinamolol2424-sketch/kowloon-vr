@@ -12,9 +12,9 @@ export class Customer {
     this.look = SkeletonUtils.clone(source);
     this.group.add(this.look);
     this.bones = {};
-    this.rest = {};
+    this.restPose = {};
     this.look.traverse(o => {
-      if (o.isBone) { this.bones[o.name] = o; this.rest[o.name] = o.quaternion.clone(); }
+      if (o.isBone) { this.bones[o.name] = o; this.restPose[o.name] = o.quaternion.clone(); }
       if (o.isSkinnedMesh) o.frustumCulled = false;
     });
     this.path = path;
@@ -45,6 +45,15 @@ export class Customer {
   tick(dt, viewer) {
     let event = null, moving = false;
     this.time += dt;
+    this.stagger = Math.max(0, (this.stagger ?? 0) - dt * 0.35);
+    if (this.hold > 0 && this.state !== 'gone') {          // 부딪혀서 멈춰 돌아봄
+      this.hold -= dt;
+      this.turn(Math.atan2(viewer.x - this.group.position.x, viewer.z - this.group.position.z), dt);
+      this.walk += (0 - this.walk) * Math.min(1, dt * 8);
+      this.pose();
+      if (this.panel.visible) this.panel.lookAt(viewer.x, this.panel.getWorldPosition(new THREE.Vector3()).y, viewer.z);
+      return null;
+    }
     if (this.state === 'coming' || this.state === 'leaving') {
       const to = this.path[this.index];
       const d = new THREE.Vector3().subVectors(to, this.group.position);
@@ -79,7 +88,8 @@ export class Customer {
     b.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(local, rad(degrees)));
   }
   pose() {
-    for (const n in this.bones) this.bones[n].quaternion.copy(this.rest[n]);
+    for (const n in this.bones) this.bones[n].quaternion.copy(this.restPose[n]);
+    this.look.rotation.x = -(this.stagger ?? 0);
     const w = this.walk, s = Math.sin(this.phase), c = Math.cos(this.phase), br = Math.sin(this.time * 1.6) * (1 - w * 0.6);
     this.bend('Spine', 1.5 * w + br * 0.5, X);
     this.bend('Chest', -br * 0.6, X);

@@ -196,6 +196,9 @@ export class Police {
   }
 
   patrol(c, dt, me) {
+    c.body.stagger = Math.max(0, (c.body.stagger ?? 0) - dt * 0.35);
+    if (c.body.hold > 0) { c.body.hold -= dt; c.look(me, dt); return; }        // 부딪혀서 검문 중
+    if (c.heardFor > 0) { c.heardFor -= dt; c.look(c.heard, dt); this.watchMe(c, dt, me); return; }   // 소란을 쳐다봄
     const here = c.route[c.at];
     if (c.wait > 0) {
       c.wait -= dt;
@@ -209,6 +212,9 @@ export class Police {
       }
       if (c.path && c.step(dt)) { c.at = c.next; c.path = null; c.wait = Math.max(0.05, c.route[c.at].wait); }
     }
+    this.watchMe(c, dt, me);
+  }
+  watchMe(c, dt, me) {
     const holding = this.handsBusy() && c.sees(me), lying = !holding && this.evidence().find(p => c.sees(p));
     const seen = holding || !!lying;
     if (lying) c.look(lying, dt * 0.6);

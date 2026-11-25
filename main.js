@@ -9,6 +9,7 @@ import { makePanel, sound } from './ui.js';
 import { Game } from './game.js';
 import { Nav } from './nav.js';
 import { Police, Shutter } from './police.js';
+import { Street } from './street.js';
 import { settings, SettingsPanel } from './settings.js';
 
 const LIGHT = 4;              // 구운 빛은 1/4 로 저장되어 있다 (Tools/web_shop.py)
@@ -45,7 +46,7 @@ const loader = new GLTFLoader();
 loader.setDRACOLoader(new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/'));
 let map, floor, portals = [];
 const grabbables = [];       // 손에 들 수 있는 것: userData.kind = 'bag' | 'gun'
-let bench = null, bagModel = null, game = null, nav = null, police = null, shutter = null, solid = null;
+let bench = null, bagModel = null, game = null, nav = null, police = null, shutter = null, solid = null, street = null;
 
 function bakedMaterial(m, mesh) {
   const lit = new THREE.MeshBasicMaterial({ map: m.map, color: m.color, side: m.side, transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest, vertexColors: !!mesh.geometry.attributes.color });
@@ -103,6 +104,14 @@ async function load() {
     handsBusy: () => !!held || hands.some(h => h.held),
     onRaid: () => { game.onRaid(); if (heldPart) { bench.release(heldPart); heldPart = null; } for (const h of hands) if (h.part) h.letGo(); bench.clear(); },
     setOver: (title, text, win) => game.end(text, title, win),
+  });
+  const people = {};
+  await Promise.all(['junk', 'food', 'dealer', 'clinic', 'gamble', 'resident'].map(async id => { people[id] = (await loader.loadAsync(`assets/npc_${id}.glb`)).scene; }));
+  street = new Street({
+    scene, nav, game, police, shutter, say, feet, models: people, triadModel: person,
+    eye: () => camera.getWorldPosition(new THREE.Vector3()),
+    handsBusy: () => !!held || hands.some(h => h.held),
+    buzz: (s, ms) => { for (const h of hands) buzz(h, s, ms); },
   });
   applySettings();
   game.nextCall = Infinity;               // 시작 화면에서는 전화가 울리지 않는다
@@ -176,6 +185,7 @@ function restart() {
   bench.clear();
   game.reset(game.over?.title !== '게임 오버' && !!game.over);
   police.reset();
+  street.reset();
   fadeTo(() => { goTo(new THREE.Vector3(...map.spawn)); settle(); });
 }
 function begin() { if (game && game.nextCall === Infinity) { game.nextCall = 12; say('조직의 전화를 기다리세요 · 카운터 전화기'); } }
@@ -226,7 +236,7 @@ function tryMove(dx, dz) {
   const f = feet();
   for (const [x, z] of [[dx, dz], [dx, 0], [0, dz]]) {
     const y = groundAt(new THREE.Vector3(f.x + x, f.y, f.z + z));
-    if (y === null || shutterBlocks(f, f.x + x, f.z + z)) continue;
+    if (y === null || shutterBlocks(f, f.x + x, f.z + z) || street?.blocks(f, f.x + x, f.z + z)) continue;
     rig.position.x += x;
     rig.position.z += z;
     rig.position.y = y;
@@ -301,7 +311,7 @@ function tickPortals() {
 // ---------- PC 조작 ----------
 let yaw = 0, pitch = 0;
 const keys = new Set();
-addEventListener('keydown', e => { keys.add(e.code); if ((e.code === 'KeyE' && !renderer.xr.isPresenting || e.code === 'KeyF' && renderer.xr.isPresenting) && !e.repeat) toggleHeld(); if (e.code === 'KeyR' && game?.over) restart(); if (e.code === 'KeyG') police?.bribe(); if (e.code === 'KeyP' && !game?.over && !e.repeat) police?.set(police.phase + 1); if (e.code === 'KeyY' && game?.call && rig.position.y > 20) game.answer(); });
+addEventListener('keydown', e => { keys.add(e.code); if ((e.code === 'KeyE' && !renderer.xr.isPresenting || e.code === 'KeyF' && renderer.xr.isPresenting) && !e.repeat) toggleHeld(); if (e.code === 'KeyR' && game?.over) restart(); if (/^Digit[123]$/.test(e.code)) street?.choose(+e.code[5] - 1); if (e.code === 'KeyG') police?.bribe(); if (e.code === 'KeyP' && !game?.over && !e.repeat) police?.set(police.phase + 1); if (e.code === 'KeyY' && game?.call && rig.position.y > 20) game.answer(); });
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement === renderer.domElement) { clickedAt = performance.now(); toggleHeld(); } });
 addEventListener('mouseup', e => { if (e.button === 0 && heldPart && document.pointerLockElement === renderer.domElement && performance.now() - clickedAt > 260) toggleHeld(); });   // 누른 채 끌어 놓기
@@ -369,6 +379,7 @@ function toggleHeld() {
   if (!police) return;
   if (game.over) { if (renderer.xr.isPresenting) restart(); return; }
   if (renderer.xr.isPresenting) gaze.visible = true;         // VR 에서 키보드 F = 바라보는 것 집기 (에뮬레이터용)
+  if (street?.open) { aimRay(); const i = street.hit(ray.ray); if (i >= 0) { street.choose(i); return; } }
   if (game.call && !heldPart && aimedPhone()) { game.answer(); return; }
   if (heldPart) { bench.release(heldPart); heldPart = null; return; }
   if (held) {
@@ -482,6 +493,7 @@ const hands = [0, 1].map(i => {
   c.addEventListener('disconnected', () => { hand.source = null; });
   c.addEventListener('selectstart', () => {
     if (game?.over) { restart(); return; }
+    if (pickChoice(hand)) return;
     if (bench?.active && !hand.part && !hand.held) {          // 방아쇠를 누른 채 부품을 끌어 맞추기
       const t = pointed(hand);
       if (t?.kind === 'part') { grabPointed(hand, t); hand.dragging = true; return; }
@@ -505,6 +517,7 @@ const hands = [0, 1].map(i => {
   };
   hand.letGo = letGo;
   c.addEventListener('squeezestart', () => {
+    if (pickChoice(hand)) return;
     if (hand.part && !hand.part.holder) hand.part = null;       // 이미 붙은 부품
     if (hand.held || hand.part) { if (settings.toggle) letGo(); return; }
     const p = grip.getWorldPosition(new THREE.Vector3());
@@ -591,6 +604,20 @@ function pointed(hand) {
   aimRay();                                        // 오른손은 바라보는 것도 잡힌다
   const seen = cast(ray.ray, 0.08);
   return seen && { ...seen, gaze: true };
+}
+/** 시비 선택지: 가리키거나(오른손은 바라봐도) 방아쇠·그립으로 고른다 */
+function aimedChoice(hand) {
+  if (!street?.open) return -1;
+  const i = street.hit(new THREE.Ray(hand.c.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(0, 0, -1).transformDirection(hand.c.matrixWorld)));
+  if (i >= 0 || hand.source?.handedness === 'left') return i;
+  aimRay();
+  return street.hit(ray.ray);
+}
+function pickChoice(hand) {
+  const i = aimedChoice(hand);
+  if (i < 0) return false;
+  buzz(hand, 0.5, 40);
+  return street.choose(i);
 }
 function grabPointed(hand, t) {
   if (t.kind === 'phone') game.answer();
@@ -685,6 +712,7 @@ let aimIn = 0;
 
 /** 지금 할 수 있는 것 */
 function hintText() {
+  if (street.open) return street.hover >= 0 ? '[E·클릭] 고르기' : '선택지를 바라보고 [E·클릭] 또는 숫자 1 2 3';
   const g = held || heldPart ? null : aimed();
   aimRay();
   const part = !held && !heldPart && bench.active ? bench.hit(ray) : null;
@@ -700,9 +728,14 @@ function hintText() {
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
-  if (map && floor && police) {
-    if ($('start').hidden || renderer.xr.isPresenting) { game.tick(dt); if (!game.over) police.tick(dt); }
+  if (map && floor && street) {
+    if ($('start').hidden || renderer.xr.isPresenting) { game.tick(dt); if (!game.over) { police.tick(dt); if (!game.over) street.tick(dt); } }
     drawStatus();
+    if (street.open) {                              // 고르려는 선택지를 밝게
+      let i = -1;
+      if (renderer.xr.isPresenting) { for (const h of hands) if (i < 0) i = aimedChoice(h); } else { aimRay(); i = street.hit(ray.ray); }
+      street.hover = i;
+    }
     tickPart(dt);
     bench.tick(dt);
     toastLeft -= dt;
@@ -733,5 +766,5 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 load().catch(e => { $('load').textContent = '불러오지 못했어요: ' + e.message; console.error(e); });
-window.dev = { tickFarPart, sitAtBench, get game() { return game; }, get police() { return police; }, get shutter() { return shutter; }, get nav() { return nav; }, begin, restart, takeFromVault, handOver, hold, panel, settings };
+window.dev = { tickFarPart, sitAtBench, get game() { return game; }, get police() { return police; }, get shutter() { return shutter; }, get street() { return street; }, get nav() { return nav; }, begin, restart, takeFromVault, handOver, hold, panel, settings };
 window.game = { rig, camera, renderer, scene, tryMove, goTo, groundAt, look: (y, p) => { yaw = y; pitch = p; }, get map() { return map; }, get portals() { return portals; }, grabbables, toggleHeld, useBag, drop, hands, get bench() { return bench; } };

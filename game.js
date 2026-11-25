@@ -221,6 +221,7 @@ export class Game {
     // 손님
     for (const c of [...this.customers]) {
       const e = c.tick(dt, this.viewer());
+      if (c.hold > 0) continue;
       if (e === 'gone') { this.customers.splice(this.customers.indexOf(c), 1); continue; }
       if (e === 'arrived') { this.say(`손님이 카운터에서 기다린다 · 암호 '${c.code}'`); c.panel.visible = true; }
       if (c.state !== 'waiting') continue;

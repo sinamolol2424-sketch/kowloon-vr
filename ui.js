@@ -13,12 +13,12 @@ export function makePanel(width, height, px = 512) {
   texture.colorSpace = THREE.SRGBColorSpace;
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false, side: THREE.DoubleSide }));
   let last = '';
-  mesh.userData.set = (lines, border = '#e9a94a') => {
-    const key = JSON.stringify([lines, border]);
+  mesh.userData.set = (lines, border = '#e9a94a', fill = 'rgba(20,14,8,.88)') => {
+    const key = JSON.stringify([lines, border, fill]);
     if (key === last) return;
     last = key;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'rgba(20,14,8,.88)';
+    ctx.fillStyle = fill;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.strokeStyle = border;
     ctx.lineWidth = 6;
@@ -44,7 +44,7 @@ export function sound(kind) {
   try {
     audio ??= new AudioContext();
     if (audio.state === 'suspended') audio.resume();
-    const notes = { snap: [[900, 0, 0.05], [420, 0.03, 0.06]], pick: [[300, 0, 0.04]], good: [[520, 0, 0.12], [660, 0.12, 0.12], [880, 0.24, 0.25]], ring: [[1250, 0, 0.09], [980, 0.1, 0.09], [1250, 0.2, 0.09], [980, 0.3, 0.09], [1250, 0.4, 0.09], [980, 0.5, 0.12]], siren: [[620, 0, 0.35], [830, 0.35, 0.35], [620, 0.7, 0.35], [830, 1.05, 0.4]], bad: [[220, 0, 0.2], [160, 0.18, 0.3]] }[kind];
+    const notes = { snap: [[900, 0, 0.05], [420, 0.03, 0.06]], pick: [[300, 0, 0.04]], good: [[520, 0, 0.12], [660, 0.12, 0.12], [880, 0.24, 0.25]], ring: [[1250, 0, 0.09], [980, 0.1, 0.09], [1250, 0.2, 0.09], [980, 0.3, 0.09], [1250, 0.4, 0.09], [980, 0.5, 0.12]], bump: [[140, 0, 0.09], [90, 0.04, 0.12]], siren: [[620, 0, 0.35], [830, 0.35, 0.35], [620, 0.7, 0.35], [830, 1.05, 0.4]], bad: [[220, 0, 0.2], [160, 0.18, 0.3]] }[kind];
     for (const [f, at, len] of notes) {
       const o = audio.createOscillator(), g = audio.createGain();
       o.type = kind === 'snap' ? 'square' : 'triangle';
