@@ -6,7 +6,7 @@ import { makePanel, sound } from './ui.js';
 
 export const RULES = {
   firstCall: 12, gapMin: 30, gapMax: 45, ringTime: 20,
-  accept: 3, miss: 12, assemblyPay: 900, salePay: 1200, saleTrust: 5, failTrust: 20,
+  accept: 3, miss: 5, assemblyPay: 900, salePay: 1200, saleTrust: 5, failTrust: 20,
   customerDelay: 25, customerWait: 120, maxWarnings: 3,
 };
 const V = a => new THREE.Vector3(...a);

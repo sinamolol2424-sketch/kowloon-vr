@@ -25,6 +25,13 @@ export class Bench {
     this.lamp = new THREE.PointLight(0xffe2b8, 1.2, 3);
     this.lamp.position.set(0, 1, 0.1);
     this.stage.add(this.lamp);
+    this.stage.rotation.order = 'YXZ';
+    this.board = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.03, 1.16), new THREE.MeshLambertMaterial({ color: 0x3f5a48 }));   // VR: 비스듬한 작업판
+    this.board.position.set(0, -0.005, 0);
+    this.board.visible = false;
+    this.stage.add(this.board);
+    this.vr = false;                  // VR 이면 조립하는 동안 작업판을 세워 내려다보는 것처럼 보이게
+    this.lift = 0;
     this.parts = [];
     this.code = null;
     this.cache = {};
@@ -32,7 +39,17 @@ export class Bench {
   }
 
   /** 조립판을 높인다 (VR 설정) */
-  raise(h) { this.stage.position.y = this.origin.y + h; }
+  raise(h) { this.lift = h; this.setTilt(this.tilted); }
+  setTilt(on) {
+    this.tilted = on;
+    const a = on ? 0.68 : 0;
+    this.stage.rotation.x = a;
+    this.stage.position.y = this.origin.y + this.lift + Math.sin(a) * 0.56;
+    this.board.visible = on;
+    this.panel.position.set(0, on ? 0.3 : 0.62, on ? -0.62 : -0.55);
+    this.panel.rotation.x = on ? -a : -0.12;
+    this.stage.updateMatrixWorld(true);
+  }
   get active() { return this.parts.length > 0; }
   near(p) { return Math.hypot(p.x - this.origin.x, p.z - this.origin.z) < 1.5 && Math.abs(p.y - this.origin.y) < 1.3; }
   idle() { this.panel.userData.set([{ text: '총기 조립 작업대', size: 44, bold: true }, { text: '부품 가방을 여기에 내려놓으세요', size: 34 }]); }
@@ -101,6 +118,7 @@ export class Bench {
     const longs = this.parts.filter(p => p.length > 0.4).length;      // 긴 부품이 있으면 짧은 부품은 그 안쪽 줄로
     if (longs) for (const p of this.parts) if (p.length <= 0.4) p.homeCenter.z = 0.48 - longs * 0.12 - 0.02;
     for (const p of this.parts) this.home(p, 1);
+    this.setTilt(this.vr);
     this.left = TIME;
     this.warned = false;
     this.say(`'${code}' 부품을 꺼냈다 · 몸통부터 맞추세요`);
@@ -219,6 +237,7 @@ export class Bench {
     this.parts = [];
     this.gunRoot?.removeFromParent();
     this.code = null;
+    this.setTilt(false);
     this.idle();
   }
 }

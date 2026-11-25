@@ -73,7 +73,7 @@ async function load() {
   bagModel = (await loader.loadAsync('assets/briefcase.glb')).scene;
   bench = new Bench({
     scene, loader, position: map.bench, say,
-    onDone: (code, gun) => { gun.userData = { kind: 'gun', code }; grabbables.push(gun); game.assembled(code); },
+    onDone: (code, gun) => { gun.userData = { kind: 'gun', code }; grabbables.push(gun); game.assembled(code); if (renderer.xr.isPresenting) drop(gun); },
     onFail: () => game.fail('조립 시간 초과 · 부품을 못 쓰게 됐다'),
   });
   bench.baseYaw = THREE.MathUtils.degToRad(map.benchYaw);
@@ -99,7 +99,7 @@ async function load() {
     stairs: map.stairs.filter(s => groundAt(new THREE.Vector3(...s.to), 1.5) !== null),
     eye: () => camera.getWorldPosition(new THREE.Vector3()),
     handsBusy: () => !!held || hands.some(h => h.held),
-    onRaid: () => { game.onRaid(); if (heldPart) { bench.release(heldPart); heldPart = null; } bench.clear(); },
+    onRaid: () => { game.onRaid(); if (heldPart) { bench.release(heldPart); heldPart = null; } for (const h of hands) if (h.part) h.letGo(); bench.clear(); },
     setOver: (title, text, win) => game.end(text, title, win),
   });
   applySettings();
@@ -181,7 +181,8 @@ function applySettings() {
   lift.position.y = renderer.xr.isPresenting ? settings.height : 0;
   bench?.raise(renderer.xr.isPresenting ? settings.table : 0);
   toast.scale.setScalar(settings.text);
-  wrist.scale.setScalar(settings.text);
+  wrist.scale.setScalar(0.6 * settings.text);
+  panel.mesh.scale.setScalar(0.62 * settings.text);
 }
 
 // ---------- 안내 글자 (PC = 화면 아래, VR = 눈앞) ----------
@@ -298,9 +299,10 @@ function tickPortals() {
 // ---------- PC 조작 ----------
 let yaw = 0, pitch = 0;
 const keys = new Set();
-addEventListener('keydown', e => { keys.add(e.code); if (e.code === 'KeyE' && !e.repeat) toggleHeld(); if (e.code === 'KeyR' && game?.over) restart(); if (e.code === 'KeyG') police?.bribe(); if (e.code === 'KeyP' && !game?.over && !e.repeat) police?.set(police.phase + 1); if (e.code === 'KeyY' && game?.call && rig.position.y > 20) game.answer(); });
+addEventListener('keydown', e => { keys.add(e.code); if ((e.code === 'KeyE' && !renderer.xr.isPresenting || e.code === 'KeyF' && renderer.xr.isPresenting) && !e.repeat) toggleHeld(); if (e.code === 'KeyR' && game?.over) restart(); if (e.code === 'KeyG') police?.bribe(); if (e.code === 'KeyP' && !game?.over && !e.repeat) police?.set(police.phase + 1); if (e.code === 'KeyY' && game?.call && rig.position.y > 20) game.answer(); });
 addEventListener('keyup', e => keys.delete(e.code));
-addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement === renderer.domElement) toggleHeld(); });
+addEventListener('mousedown', e => { if (e.button === 0 && document.pointerLockElement === renderer.domElement) { clickedAt = performance.now(); toggleHeld(); } });
+addEventListener('mouseup', e => { if (e.button === 0 && heldPart && document.pointerLockElement === renderer.domElement && performance.now() - clickedAt > 260) toggleHeld(); });   // 누른 채 끌어 놓기
 addEventListener('blur', () => keys.clear());
 // 마우스 잠금이 안 되는 창(미리보기 등)에서는 끌어서 둘러본다
 let dragLook = false, dragging = false, dragged = 0;
@@ -336,6 +338,10 @@ function aimed() {
 }
 let heldPart = null;                 // PC 에서 집은 총 부품: 작업대 위에서 조준점을 따라온다
 const tablePlane = new THREE.Plane();
+function setTablePlane() {
+  tablePlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0).transformDirection(bench.stage.matrixWorld), bench.stage.localToWorld(new THREE.Vector3(0, 0.1, 0)));
+}
+let clickedAt = 0;
 function hold(g) {
   held = g;
   delete g.userData.fall;
@@ -360,7 +366,7 @@ function handAt() {
 function toggleHeld() {
   if (!police) return;
   if (game.over) { if (renderer.xr.isPresenting) restart(); return; }
-  if (renderer.xr.isPresenting) gaze.visible = true;         // VR 에서 키보드 E = 바라보는 것 집기 (에뮬레이터용)
+  if (renderer.xr.isPresenting) gaze.visible = true;         // VR 에서 키보드 F = 바라보는 것 집기 (에뮬레이터용)
   if (game.call && !heldPart && aimedPhone()) { game.answer(); return; }
   if (heldPart) { bench.release(heldPart); heldPart = null; return; }
   if (held) {
@@ -394,13 +400,43 @@ function useBag(g) {
     x.position.copy(bench.origin).addScaledVector(away, 0.42 - i * 0.02).add(new THREE.Vector3(-away.z, 0, away.x).multiplyScalar((i % 3 - 1) * 0.4)).y += 0.05 + Math.floor(i / 3) * 0.06;
     delete x.userData.fall;
   });
+  bench.vr = renderer.xr.isPresenting;
+  if (bench.vr) sitAtBench();
   bench.start(code, feet()).catch(e => { console.error(e); bench.clear(); addBag(code); say('총 모델을 불러오지 못했다', 'bad'); });
+}
+/** 멀리서 집은 부품: 컨트롤러가 가리키는 곳, 작업대를 벗어나면 바라보는 곳 */
+function tickFarPart(hand, dt) {
+  const p = hand.part;
+  if (!p.holder) { hand.part = null; return; }
+  if (p.holder !== bench) return;
+  setTablePlane();
+  const beam = new THREE.Ray(hand.c.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(0, 0, -1).transformDirection(hand.c.matrixWorld));
+  let at = beam.intersectPlane(tablePlane, new THREE.Vector3());
+  if (!at || at.distanceTo(bench.origin) > 1.2) { aimRay(); at = ray.ray.intersectPlane(tablePlane, new THREE.Vector3()); }
+  if (!at || at.distanceTo(bench.origin) > 1.4) return;
+  const k = 1 - Math.exp(-16 * dt);
+  p.body.position.lerp(bench.stage.worldToLocal(at).sub(p.offset), k);
+  p.body.quaternion.slerp(p.target.quat, k);
+}
+/** VR: 화면을 잠깐 어둡게 하고 작업대 앞에 정면으로 세운다 */
+function sitAtBench() {
+  const me = feet(), yawOf = v => Math.atan2(v.x, v.z);
+  const side = Math.round((Math.atan2(me.x - bench.origin.x, me.z - bench.origin.z) - bench.baseYaw) / Math.PI) * Math.PI + bench.baseYaw;
+  const out = new THREE.Vector3(Math.sin(side), 0, Math.cos(side));
+  fadeTo(() => {
+    const spot = bench.origin.clone().addScaledVector(out, 0.95).setY(rig.position.y);
+    for (let d = 0.95; d < 1.6; d += 0.08) { spot.copy(bench.origin).addScaledVector(out, d).setY(rig.position.y); if (groundAt(spot) !== null) break; }
+    const look = camera.getWorldDirection(new THREE.Vector3());
+    rig.rotation.y += yawOf(out.clone().negate()) - yawOf(look);
+    rig.updateMatrixWorld(true);
+    goTo(spot);
+  });
 }
 function tickPart(dt) {
   if (!heldPart) return;
   if (!heldPart.holder) { heldPart = null; return; }       // 붙었거나 시간이 끝났다
   aimRay();
-  tablePlane.setFromNormalAndCoplanarPoint(THREE.Object3D.DEFAULT_UP, bench.origin.clone().setY(bench.origin.y + 0.1));
+  setTablePlane();
   const at = ray.ray.intersectPlane(tablePlane, new THREE.Vector3());
   if (!at || at.distanceTo(bench.origin) > 1.4) return;
   const want = bench.stage.worldToLocal(at);
@@ -439,14 +475,31 @@ const hands = [0, 1].map(i => {
   c.addEventListener('disconnected', () => { hand.source = null; });
   c.addEventListener('selectstart', () => {
     if (game?.over) { restart(); return; }
+    if (bench?.active && !hand.part && !hand.held) {          // 방아쇠를 누른 채 부품을 끌어 맞추기
+      const t = pointed(hand);
+      if (t?.kind === 'part') { grabPointed(hand, t); hand.dragging = true; return; }
+    }
+    if (bench?.active && bench.near(feetAtHand())) return;      // 조립 중에는 순간이동하지 않는다
     hand.aiming = true;
   });
   c.addEventListener('selectend', () => {
+    if (hand.dragging) { hand.dragging = false; if (hand.part) hand.letGo(); return; }
     hand.aiming = false;
     line.visible = false;
     if (hand.target) { const t = hand.target; hand.target = null; fadeTo(() => goTo(t)); }
   });
+  const letGo = () => {
+    if (hand.part) { if (hand.part.holder === grip || hand.part.holder === bench) bench.release(hand.part); hand.part = null; }
+    if (!hand.held) return;
+    const g = hand.held, spots = [grip.getWorldPosition(new THREE.Vector3()), feetAtHand(), handAt()];
+    hand.held = null;
+    if (g.userData.kind === 'bag' && spots.some(p => bench.near(p))) useBag(g);
+    else if (!spots.some(p => handOver(g, p))) drop(g);
+  };
+  hand.letGo = letGo;
   c.addEventListener('squeezestart', () => {
+    if (hand.part && !hand.part.holder) hand.part = null;       // 이미 붙은 부품
+    if (hand.held || hand.part) { if (settings.toggle) letGo(); return; }
     const p = grip.getWorldPosition(new THREE.Vector3());
     const part = bench?.active ? bench.nearest(p) : null;
     if (part) { hand.part = part; bench.grab(part, grip); buzz(hand, 0.3, 30); return; }
@@ -474,14 +527,7 @@ const hands = [0, 1].map(i => {
     grip.attach(best);
     buzz(hand, 0.4, 40);
   });
-  c.addEventListener('squeezeend', () => {
-    if (hand.part) { if (hand.part.holder === grip) bench.release(hand.part); hand.part = null; }
-    if (!hand.held) return;
-    const g = hand.held;
-    hand.held = null;
-    if (g.userData.kind === 'bag' && bench.near(grip.getWorldPosition(new THREE.Vector3()))) useBag(g);
-    else if (!handOver(g, grip.getWorldPosition(new THREE.Vector3()))) drop(g);
-  });
+  c.addEventListener('squeezeend', () => { if (!settings.toggle) letGo(); });
   grip.userData.onSnap = () => buzz(hand, 0.9, 90);          // 부품이 붙는 순간 손이 떨린다
   return hand;
 });
@@ -489,9 +535,9 @@ const hands = [0, 1].map(i => {
 const wrist = makePanel(0.24, 0.15, 512);
 const panel = new SettingsPanel(applySettings);
 function attachWrist(hand) {
-  wrist.position.set(0, 0.06, 0.1);
+  wrist.position.set(-0.02, 0.05, 0.06);
   wrist.rotation.x = -0.9;
-  panel.mesh.position.set(0, 0.26, -0.06);
+  panel.mesh.position.set(0, 0.17, -0.1);
   panel.mesh.rotation.x = -0.35;
   hand.grip.add(wrist, panel.mesh);
 }
@@ -508,7 +554,7 @@ function drawStatus() {
   overPanel.visible = !!game.over;
   if (game.over) overPanel.userData.set([{ text: game.over.title, size: 80, bold: true, color: game.over.win ? '#9dff8a' : '#ff7b5c' }, { text: game.over.text, size: 38 }, { text: `번 돈 ${money} · 판매 ${game.sold}건`, size: 38, color: '#ffd79a' }, { text: renderer.xr.isPresenting ? '방아쇠를 당기면 다시 시작' : '[R] 다시 시작', size: 34 }], game.over.win ? '#9dff8a' : '#ff7b5c');
 }
-// VR 에서 바라보는 점 (키보드 E 를 썼을 때만)
+// VR 에서 바라보는 점 (키보드 F 를 썼을 때만)
 const gaze = new THREE.Mesh(new THREE.CircleGeometry(0.006, 16), new THREE.MeshBasicMaterial({ color: 0xffd79a, depthTest: false, toneMapped: false }));
 gaze.position.z = -1;
 gaze.renderOrder = 999;
@@ -524,22 +570,27 @@ function pointed(hand) {
   for (const g of grabbables) if (g.parent === scene) add(g, 'item', g.userData.kind === 'bag' ? `'${g.userData.code}' 부품 가방 잡기` : `'${g.userData.code}' 총 잡기`);
   if (game.call) add(game.phone, 'phone', '전화 받기', 0.1);
   add(shutter.handle, 'shutter', shutter.isDown ? '셔터 올리기' : '셔터 내리기', 0.08);
-  let best = null, dist = 4;
-  for (const t of list) {
-    if (!beam.intersectBox(new THREE.Box3().setFromObject(t.o).expandByScalar(t.pad), at)) continue;
-    const d = at.distanceTo(from);
-    if (d < dist) { dist = d; best = { ...t, distance: d }; }
-  }
-  return best;
+  const cast = (beam, extra) => {
+    let best = null, dist = 4;
+    for (const t of list) {
+      if (!beam.intersectBox(new THREE.Box3().setFromObject(t.o).expandByScalar(t.pad + extra), at)) continue;
+      const d = at.distanceTo(beam.origin);
+      if (d < dist) { dist = d; best = { ...t, distance: at.distanceTo(from) }; }
+    }
+    return best;
+  };
+  const hit = cast(beam, 0);
+  if (hit || hand.source?.handedness === 'left') return hit;
+  aimRay();                                        // 오른손은 바라보는 것도 잡힌다
+  const seen = cast(ray.ray, 0.08);
+  return seen && { ...seen, gaze: true };
 }
 function grabPointed(hand, t) {
   if (t.kind === 'phone') game.answer();
   else if (t.kind === 'shutter') useShutter();
   else if (t.kind === 'part') {
-    hand.part = t.target;
-    bench.grab(t.target, hand.grip);
-    const to = hand.grip.getWorldPosition(new THREE.Vector3()), c = bench.center(t.target);   // 부품을 손으로 끌어온다
-    t.target.body.position.add(hand.grip.worldToLocal(to).sub(hand.grip.worldToLocal(c)));
+    hand.part = t.target;                          // 멀리서 집은 부품은 가리키는(바라보는) 작업대 위를 따라온다
+    bench.grab(t.target, bench);
   } else {
     hand.held = t.target;
     delete t.target.userData.fall;
@@ -553,6 +604,7 @@ let turnReady = true;
 function tickVR(dt) {
   marker.visible = false;
   for (const h of hands) {
+    if (h.part) tickFarPart(h, dt);
     const axes = h.source?.gamepad?.axes ?? [];
     const x = axes[2] ?? axes[0] ?? 0, y = axes[3] ?? axes[1] ?? 0;
     const menu = h.source?.gamepad?.buttons?.[4]?.pressed;         // 왼손 X
@@ -572,7 +624,7 @@ function tickVR(dt) {
         rig.position.x = f.x + d.x;
         rig.position.z = f.z + d.z;
       }
-    } else if (settings.smooth && Math.hypot(x, y) > 0.15) {
+    } else if (!(bench.active && bench.near(feetAtHand()) && Math.hypot(x, y) < 0.6) && settings.smooth && Math.hypot(x, y) > 0.15) {
       const look = camera.getWorldDirection(new THREE.Vector3());
       look.y = 0;
       look.normalize();
@@ -581,8 +633,8 @@ function tickVR(dt) {
     }
     h.target = null;
     h.look = (h.look ?? 0) - dt;
-    if (h.look <= 0) { h.look = 0.1; h.far = pointed(h); if (h.far && toastLeft <= 0.2) { say(`옆 버튼(그립) · ${h.far.label}`); toastLeft = 0.35; } }
-    h.line.visible = !!h.far && !h.aiming;
+    if (h.look <= 0) { h.look = 0.1; h.far = pointed(h); if (h.far && toastLeft <= 0.2) { say(`그립 버튼 · ${h.far.label}`); toastLeft = 0.35; } }
+    h.line.visible = !!h.far && !h.far.gaze && !h.aiming;
     if (h.line.visible) h.line.scale.z = h.far.distance / 5 / rig.scale.x;
     if (!h.aiming) continue;
     h.line.scale.z = 1;
@@ -674,5 +726,5 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 load().catch(e => { $('load').textContent = '불러오지 못했어요: ' + e.message; console.error(e); });
-window.dev = { get game() { return game; }, get police() { return police; }, get shutter() { return shutter; }, get nav() { return nav; }, begin, restart, takeFromVault, handOver, hold, panel, settings };
+window.dev = { tickFarPart, sitAtBench, get game() { return game; }, get police() { return police; }, get shutter() { return shutter; }, get nav() { return nav; }, begin, restart, takeFromVault, handOver, hold, panel, settings };
 window.game = { rig, camera, renderer, scene, tryMove, goTo, groundAt, look: (y, p) => { yaw = y; pitch = p; }, get map() { return map; }, get portals() { return portals; }, grabbables, toggleHeld, useBag, drop, hands, get bench() { return bench; } };

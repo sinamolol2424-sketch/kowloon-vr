@@ -2,13 +2,14 @@
 import { makePanel, sound } from './ui.js';
 
 const KEY = 'kowloon-vr-settings';
-export const settings = { height: 0, speed: 1.8, turn: 30, text: 1, table: 0, smooth: 1 };
+export const settings = { height: 0, speed: 1.8, turn: 30, text: 1, table: 0, smooth: 1, toggle: 1 };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { /* 저장을 못 쓰는 창 */ }
 
 const ITEMS = [
   { key: 'height', name: '키 높이', step: 0.05, min: -0.4, max: 0.6, show: v => `${v >= 0 ? '+' : ''}${Math.round(v * 100)} cm` },
   { key: 'speed', name: '걷는 속도', step: 0.2, min: 0.8, max: 3.2, show: v => v.toFixed(1) },
   { key: 'smooth', name: '스틱으로 걷기', step: 1, min: 0, max: 1, show: v => v ? '켜기' : '끄기 (순간이동만)' },
+  { key: 'toggle', name: '집기 방식', step: 1, min: 0, max: 1, show: v => v ? '한 번 눌러 들기' : '누르는 동안 들기' },
   { key: 'turn', name: '한 번에 도는 각도', step: 15, min: 15, max: 90, show: v => `${v}°` },
   { key: 'text', name: '글자 크기', step: 0.1, min: 0.7, max: 1.8, show: v => `${Math.round(v * 100)}%` },
   { key: 'table', name: '조립판 높이', step: 0.03, min: 0, max: 0.36, show: v => `+${Math.round(v * 100)} cm` },
@@ -17,7 +18,7 @@ const ITEMS = [
 export class SettingsPanel {
   constructor(onChange) {
     this.onChange = onChange;
-    this.mesh = makePanel(0.36, 0.36, 640);
+    this.mesh = makePanel(0.36, 0.4, 640);
     this.mesh.visible = false;
     this.at = 0;
     this.ready = true;
@@ -43,6 +44,6 @@ export class SettingsPanel {
   draw() {
     this.mesh.userData.set([{ text: '설정', size: 46, bold: true },
       ...ITEMS.map((i, n) => ({ text: `${n === this.at ? '▶ ' : ''}${i.name}   ${i.show(settings[i.key])}`, size: 34, color: n === this.at ? '#ffd79a' : '#b8a98a' })),
-      { text: '왼쪽 스틱으로 바꾸기 · X 닫기', size: 26, color: '#8f8169' }]);
+      { text: '왼쪽 스틱으로 바꾸기 · 닫아야 걸을 수 있어요 (X)', size: 26, color: '#8f8169' }]);
   }
 }
