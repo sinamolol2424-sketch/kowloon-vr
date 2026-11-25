@@ -2,7 +2,7 @@
 import { makePanel, sound } from './ui.js';
 
 const KEY = 'kowloon-vr-settings';
-export const settings = { height: 0, speed: 1.8, turn: 30, text: 1, table: 0, smooth: 1, toggle: 1 };
+export const settings = { height: 0, speed: 1.8, turn: 30, text: 1, table: 0, smooth: 1, toggle: 1, guide: 1 };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { /* 저장을 못 쓰는 창 */ }
 
 const ITEMS = [
@@ -10,6 +10,7 @@ const ITEMS = [
   { key: 'speed', name: '걷는 속도', step: 0.2, min: 0.8, max: 3.2, show: v => v.toFixed(1) },
   { key: 'smooth', name: '스틱으로 걷기', step: 1, min: 0, max: 1, show: v => v ? '켜기' : '끄기 (순간이동만)' },
   { key: 'toggle', name: '집기 방식', step: 1, min: 0, max: 1, show: v => v ? '한 번 눌러 들기' : '누르는 동안 들기' },
+  { key: 'guide', name: '안내 화살표', step: 1, min: 0, max: 1, show: v => v ? '켜기' : '끄기' },
   { key: 'turn', name: '한 번에 도는 각도', step: 15, min: 15, max: 90, show: v => `${v}°` },
   { key: 'text', name: '글자 크기', step: 0.1, min: 0.7, max: 1.8, show: v => `${Math.round(v * 100)}%` },
   { key: 'table', name: '조립판 높이', step: 0.03, min: 0, max: 0.36, show: v => `+${Math.round(v * 100)} cm` },

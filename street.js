@@ -47,7 +47,7 @@ export class Street {
 
   // ---------- 이웃 산책 ----------
   spawn() {
-    const free = Object.keys(this.models).filter(id => !this.people.some(p => p.id === id));
+    const free = Object.keys(this.models).filter(id => !this.people.some(p => p.id === id) && this.visitor?.()?.id !== id);
     if (!free.length) return;
     const id = pick(free), me = this.feet();
     const at = pick(SPOTS.filter(s => s.distanceTo(me) > 5));
@@ -76,6 +76,8 @@ export class Street {
     for (const c of this.game.customers) if (c.state !== 'gone') list.push({ who: c, type: 'customer' });
     if (!this.police.raid) for (const c of this.police.cops) list.push({ who: c.body, type: 'police', cop: c });
     for (const p of this.people) list.push({ who: p, type: 'neighbor' });
+    const v = this.visitor?.();
+    if (v && v.state !== 'gone') list.push({ who: v, type: 'neighbor' });
     if (this.triad && this.triad.state !== 'gone') list.push({ who: this.triad, type: 'triad' });
     return list;
   }

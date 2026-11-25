@@ -26,7 +26,7 @@ export class Nav {
     this.walls = [];                // 7층 눈높이 벽 선분 [x1,z1,x2,z2]
   }
   static floor(y) { return y < 20 ? 0 : 1; }
-  open(f, x, z) { return x >= 0 && z >= 0 && x < W && z < H && this.grids[f][z * W + x] === 1 && !(f === 1 && this.blocked.has(z * W + x)); }
+  open(f, x, z) { const px = X0 + (x + 0.5) * S, pz = Z0 + (z + 0.5) * S; return !(f === 1 && (pz > 4.9 || pz < -5.75 && (px < -5.9 || px > 4.2))) && x >= 0 && z >= 0 && x < W && z < H && this.grids[f][z * W + x] === 1 && !(f === 1 && this.blocked.has(z * W + x)); }
   cell(p) { return [Math.floor((p.x - X0) / S), Math.floor((p.z - Z0) / S)]; }
   /** 선분 가까이의 칸 (셔터) */
   cellsNear(a, b, r) {

@@ -172,9 +172,10 @@ export class Police {
     if (this.phase === 1) { post(ROUTES.watch, 0); this.say('경찰 감시 시작 · 총·가방을 들고 있거나 밖에 놓아두면 체포된다', 'bad'); }
     if (this.phase === 2) { post(ROUTES.patrol, 0); this.say('경찰 순찰 시작 · 매장 안까지 들어온다. 셔터를 내리면 막을 수 있다', 'bad'); }
     if (this.phase === 3) {
-      this.siren = POLICE.siren;
+      const friends = this.friends?.() ?? [];
+      this.siren = POLICE.siren + friends.length * 5;              // 신뢰도 60 이상인 이웃이 시간을 벌어 준다
       this.beat = 0;
-      this.say('급습! 비밀 작업실 철문 너머 탈출구로 도망치세요', 'bad');
+      this.say(friends.length ? `급습! 이웃 ${friends.length}명이 시간을 벌어 준다 · 비밀 작업실 탈출구로` : '급습! 비밀 작업실 철문 너머 탈출구로 도망치세요', 'bad');
       this.onRaid();
     }
     if (this.phase) sound('bad');

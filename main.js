@@ -10,6 +10,8 @@ import { Game } from './game.js';
 import { Nav } from './nav.js';
 import { Police, Shutter } from './police.js';
 import { Street } from './street.js';
+import { Repair } from './repair.js';
+import { Guide } from './guide.js';
 import { settings, SettingsPanel } from './settings.js';
 
 const LIGHT = 4;              // 구운 빛은 1/4 로 저장되어 있다 (Tools/web_shop.py)
@@ -41,12 +43,13 @@ addEventListener('resize', () => {
   if (!renderer.xr.isPresenting) renderer.setSize(innerWidth, innerHeight);
 });
 
+const zones = { z7: [], z6: [], zf: [] };       // 안 보이는 층은 그리지 않는다
 // ---------- 불러오기 ----------
 const loader = new GLTFLoader();
 loader.setDRACOLoader(new DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/'));
 let map, floor, portals = [];
 const grabbables = [];       // 손에 들 수 있는 것: userData.kind = 'bag' | 'gun'
-let bench = null, bagModel = null, game = null, nav = null, police = null, shutter = null, solid = null, street = null;
+let bench = null, bagModel = null, game = null, nav = null, police = null, shutter = null, solid = null, street = null, repair = null, guide = null;
 
 function bakedMaterial(m, mesh) {
   const lit = new THREE.MeshBasicMaterial({ map: m.map, color: m.color, side: m.side, transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest, vertexColors: !!mesh.geometry.attributes.color });
@@ -70,6 +73,7 @@ async function load() {
   const shop = await loader.loadAsync('assets/shop.glb', e => { $('load').textContent = `불러오는 중… ${e.total ? Math.round(e.loaded / e.total * 100) : 0}%`; });
   shop.scene.traverse(o => { if (o.isMesh) { o.userData.baseName = o.material.name; o.material = bakedMaterial(o.material, o); o.matrixAutoUpdate = false; o.updateMatrix(); } });
   scene.add(shop.scene);
+  shop.scene.traverse(o => { const z = /^(z7|z6|zf)_/.exec(o.name) ?? /^(z7|z6|zf)_/.exec(o.parent?.name ?? ''); if (o.isMesh && z) zones[z[1]].push(o); });
   solid = shop.scene;
 
   bagModel = (await loader.loadAsync('assets/briefcase.glb')).scene;
@@ -94,6 +98,7 @@ async function load() {
     isBusy: () => rig.position.y < 20 || !!bench.code,
     heldGuns: () => grabbables.filter(g => g.userData.kind === 'gun').map(g => g.userData.code),
     assembling: () => bench.active ? `조립 ${bench.parts.filter(x => x.placed).length}/${bench.parts.length} · 남은 시간 ${Math.ceil(bench.left)}초` : '',
+    repairTodo: () => { const v = repair?.visitor; return !v || v.state !== 'waiting' ? '' : !v.given ? `${v.name}의 ${v.itemName} 받기` : repair.item?.userData.broken ? `${v.itemName} 수리 · ${Math.ceil(v.left)}초` : `${v.name}에게 돌려주기 · ${Math.ceil(v.left)}초`; },
     bagCount: () => grabbables.filter(g => g.userData.kind === 'bag').length,
   });
   police = new Police({
@@ -101,7 +106,7 @@ async function load() {
     stairs: map.stairs.filter(s => groundAt(new THREE.Vector3(...s.to), 1.5) !== null),
     eye: () => camera.getWorldPosition(new THREE.Vector3()),
     evidence: lyingEvidence,
-    handsBusy: () => !!held || hands.some(h => h.held),
+    handsBusy: carrying,
     onRaid: () => { game.onRaid(); if (heldPart) { bench.release(heldPart); heldPart = null; } for (const h of hands) if (h.part) h.letGo(); bench.clear(); },
     setOver: (title, text, win) => game.end(text, title, win),
   });
@@ -110,8 +115,17 @@ async function load() {
   street = new Street({
     scene, nav, game, police, shutter, say, feet, models: people, triadModel: person,
     eye: () => camera.getWorldPosition(new THREE.Vector3()),
-    handsBusy: () => !!held || hands.some(h => h.held),
+    handsBusy: carrying,
     buzz: (s, ms) => { for (const h of hands) buzz(h, s, ms); },
+    visitor: () => repair?.visitor,
+  });
+  repair = new Repair({ scene, loader, solid, game, police, street, shutter, say, feet, grabbables, eye: () => camera.getWorldPosition(new THREE.Vector3()), buzz: (s, ms) => { for (const h of hands) buzz(h, s, ms); } });
+  police.friends = () => repair.friends();
+  guide = new Guide({
+    scene, map, game, police, repair, bench, feet, settings, stairs: police.stairs,
+    eye: () => camera.getWorldPosition(new THREE.Vector3()), vr: () => renderer.xr.isPresenting,
+    held: () => held ?? hands.find(h => h.held)?.held,
+    loose: kind => grabbables.find(g => g.userData.kind === kind && g.parent === scene),
   });
   applySettings();
   game.nextCall = Infinity;               // 시작 화면에서는 전화가 울리지 않는다
@@ -154,6 +168,7 @@ function removeItem(g) {
 }
 /** 들고 있던 총을 여기(at)에서 놓았을 때: 손님에게 주거나 보관함에 넣었으면 true */
 function handOver(g, at) {
+  if (g.userData.kind === 'repair') return !game.over && repair.put(g, at);
   if (g.userData.kind !== 'gun' || game.over) return false;
   const c = game.customerNear(at);
   if (c) { removeItem(g); game.deliver(c, g.userData.code); return true; }
@@ -183,12 +198,14 @@ function restart() {
   held = heldPart = null;
   for (const h of hands) h.held = h.part = null;
   bench.clear();
-  game.reset(game.over?.title !== '게임 오버' && !!game.over);
+  const keepRun = game.over?.title !== '게임 오버' && !!game.over;
+  game.reset(keepRun);
   police.reset();
   street.reset();
+  repair.reset(keepRun);
   fadeTo(() => { goTo(new THREE.Vector3(...map.spawn)); settle(); });
 }
-function begin() { if (game && game.nextCall === Infinity) { game.nextCall = 12; say('조직의 전화를 기다리세요 · 카운터 전화기'); } }
+function begin() { if (game && game.nextCall === Infinity) { game.nextCall = 12; repair.begin(); setTimeout(() => guide.showBoard(), 400); say('조직의 전화를 기다리세요 · 카운터 전화기'); } }
 function applySettings() {
   lift.position.y = renderer.xr.isPresenting ? settings.height : 0;
   bench?.raise(renderer.xr.isPresenting ? settings.table : 0);
@@ -215,7 +232,10 @@ function say(text, kind = 'normal') {
 const ray = new THREE.Raycaster();
 const down = new THREE.Vector3(0, -1, 0);
 /** 그 자리의 바닥 높이. 걸을 수 없는 곳이면 null */
+/** 들어갈 수 없는 이웃집·건너편 집 안 */
+function closedOff(p) { return p.y > 20 && (p.z > 4.9 || p.z < -5.75 && (p.x < -5.9 || p.x > 4.2)); }
 function groundAt(p, reach = 0.8) {
+  if (closedOff(p)) return null;
   ray.set(new THREE.Vector3(p.x, p.y + reach, p.z), down);
   ray.far = reach * 2;
   const hit = ray.intersectObject(floor)[0];
@@ -359,8 +379,22 @@ function hold(g) {
   delete g.userData.fall;
   camera.attach(g);
   if (g.userData.kind === 'gun') { g.position.set(0.25, -0.28, -0.75); g.rotation.set(0, -Math.PI / 2 - 0.15, 0); }
+  else if (g.userData.kind === 'repair') { g.position.set(0.24, -0.42, -0.75 - g.userData.size.z / 2); g.rotation.set(0, 0.3, 0); }
   else { g.position.set(0.28, -0.4, -0.75); g.rotation.set(0, 0.3, 0); }
+  if (g === repair.item) repair.clearScrews();          // 다시 들면 나사 작업은 취소
   sound('pick');
+}
+function aimedScrew(r, pad = 0.05) {
+  let best = null, dist = 3.2;
+  for (const s of repair.screws) { const d = r.distanceToPoint(s.position), far = s.position.distanceTo(r.origin); if (d < pad && far < dist) { dist = far; best = s; } }
+  return best;
+}
+/** 물건을 든 의뢰인을 보고 있는지 */
+function aimedVisitor(r) {
+  const v = repair.visitor;
+  if (!v?.carry || v.state !== 'waiting') return false;
+  const c = v.group.position.clone().setY(v.group.position.y + 1.2);
+  return r.distanceToPoint(c) < 0.4 && c.distanceTo(r.origin) < 3.2;
 }
 /** 조준점이 전화기를 보는지 */
 function aimedPhone() {
@@ -395,6 +429,10 @@ function toggleHeld() {
     const p = bench.hit(ray);
     if (p) { heldPart = p; bench.grab(p, bench); return; }
   }
+  aimRay();
+  const s = aimedScrew(ray.ray);
+  if (s) { repair.turn(s); return; }
+  if (aimedVisitor(ray.ray)) { const it = repair.take(); if (it) { hold(it); return; } }
   const g = aimed();
   if (!g && aimedShutter()) { useShutter(); return; }
   if (g) hold(g);
@@ -457,10 +495,12 @@ function tickPart(dt) {
   p.body.position.lerp(want.sub(p.offset), k);
   p.body.quaternion.slerp(p.target.quat, k);
 }
+/** 총이나 부품 가방을 손에 들고 있는지 (수리 물건은 괜찮다) */
+function carrying() { return [held, ...hands.map(h => h.held)].some(g => g && g.userData.kind !== 'repair'); }
 /** 경찰 눈에 띄면 안 되는데 바닥·선반에 놓인 것: 총, 카운터 밖의 부품 가방 (7층) */
 function lyingEvidence() {
   return grabbables.filter(g => g.parent === scene && g.position.y > 20
-    && (g.userData.kind === 'gun' || Math.hypot(g.position.x + 0.64, g.position.z + 8.46) > 1.5)).map(g => g.position);
+    && (g.userData.kind === 'gun' || g.userData.kind === 'bag' && Math.hypot(g.position.x + 0.64, g.position.z + 8.46) > 1.5)).map(g => g.position);
 }
 /** 놓으면 아래 물건(카운터·작업대·바닥) 위에 내려앉는다 */
 function drop(g) {
@@ -472,7 +512,8 @@ function drop(g) {
   ray.far = Infinity;
   const turn = new THREE.Euler().setFromQuaternion(g.getWorldQuaternion(new THREE.Quaternion()), 'YXZ').y;
   g.rotation.set(g.userData.kind === 'gun' ? -Math.PI / 2 : 0, turn, 0, 'YXZ');      // 총은 옆으로 눕힌다
-  g.userData.fall = hit ? hit.point.y + 0.065 : rig.position.y + 0.065;
+  const half = g.userData.half ?? 0.065;
+  g.userData.fall = hit ? hit.point.y + half : rig.position.y + half;
 }
 
 // ---------- VR 컨트롤러 ----------
@@ -528,6 +569,9 @@ const hands = [0, 1].map(i => {
       const d = new THREE.Box3().setFromObject(g).distanceToPoint(p);
       if (d < dist) { dist = d; best = g; }
     }
+    const screw = repair?.screwNear(p);
+    if (screw) { repair.turn(screw); return; }
+    if (repair?.visitor?.carry && repair.visitor.carry.getWorldPosition(new THREE.Vector3()).distanceTo(p) < 0.4) best = repair.take() ?? best;
     if (game?.call && game.phone.getWorldPosition(new THREE.Vector3()).distanceTo(p) < 0.4) { game.answer(); buzz(hand, 0.6, 80); return; }
     if (!best && shutter && shutter.handleAt().distanceTo(p) < 0.35) { useShutter(); buzz(hand, 0.6, 60); return; }
     const far = best ? null : pointed(hand);
@@ -543,6 +587,7 @@ const hands = [0, 1].map(i => {
     }
     for (const h of hands) if (h.held === best) h.held = null;
     hand.held = best;
+    if (best === repair?.item) repair.clearScrews();
     delete best.userData.fall;
     grip.attach(best);
     buzz(hand, 0.4, 40);
@@ -587,7 +632,9 @@ function pointed(hand) {
   const beam = new THREE.Ray(from, dir), at = new THREE.Vector3(), list = [];
   const add = (o, kind, label, pad = 0.06, target = o) => list.push({ o, kind, label, pad, target });
   if (bench.active) for (const p of bench.parts) if (!p.placed && !p.holder) add(p.body, 'part', `${p.name} 잡기`, 0.03, p);
-  for (const g of grabbables) if (g.parent === scene) add(g, 'item', g.userData.kind === 'bag' ? `'${g.userData.code}' 부품 가방 잡기` : `'${g.userData.code}' 총 잡기`);
+  for (const g of grabbables) if (g.parent === scene) add(g, 'item', g.userData.kind === 'bag' ? `'${g.userData.code}' 부품 가방 잡기` : g.userData.kind === 'repair' ? `${g.userData.name} 잡기` : `'${g.userData.code}' 총 잡기`);
+  for (const s of repair.screws) add(s, 'screw', '나사 조이기', 0.03);
+  if (repair.visitor?.carry && repair.visitor.state === 'waiting') add(repair.visitor.carry, 'visitor', `${repair.visitor.itemName} 받기`, 0.12);
   if (game.call) add(game.phone, 'phone', '전화 받기', 0.1);
   add(shutter.handle, 'shutter', shutter.isDown ? '셔터 올리기' : '셔터 내리기', 0.08);
   const cast = (beam, extra) => {
@@ -620,6 +667,8 @@ function pickChoice(hand) {
   return street.choose(i);
 }
 function grabPointed(hand, t) {
+  if (t.kind === 'screw') { repair.turn(t.target); return; }
+  if (t.kind === 'visitor') { const it = repair.take(); if (!it) return; t = { ...t, kind: 'item', target: it }; }
   if (t.kind === 'phone') game.answer();
   else if (t.kind === 'shutter') useShutter();
   else if (t.kind === 'part') {
@@ -627,6 +676,7 @@ function grabPointed(hand, t) {
     bench.grab(t.target, bench);
   } else {
     hand.held = t.target;
+    if (t.target === repair.item) repair.clearScrews();
     delete t.target.userData.fall;
     hand.grip.attach(t.target);
     t.target.position.set(0, -0.06, -0.1);
@@ -712,6 +762,8 @@ let aimIn = 0;
 
 /** 지금 할 수 있는 것 */
 function hintText() {
+  if (!held && !heldPart && !bench.active) { aimRay(); if (aimedScrew(ray.ray)) return '[E·클릭] 나사 조이기'; if (aimedVisitor(ray.ray)) return `[E] ${repair.visitor.itemName} 받기`; }
+  if (held?.userData.kind === 'repair') return held.userData.broken ? (repair.nearBench(feetAtHand()) || repair.nearBench(handAt()) ? '[E] 수리 작업대에 놓기' : '[E] 내려놓기') : repair.nearOwner(handAt()) || repair.nearOwner(feetAtHand()) ? `[E] ${held.userData.name} 돌려주기` : '[E] 내려놓기';
   if (street.open) return street.hover >= 0 ? '[E·클릭] 고르기' : '선택지를 바라보고 [E·클릭] 또는 숫자 1 2 3';
   const g = held || heldPart ? null : aimed();
   aimRay();
@@ -720,7 +772,7 @@ function hintText() {
     : held && held.userData.kind === 'gun' && (game.customerNear(handAt()) || game.customerNear(feetAtHand())) ? `[E] 손님에게 '${held.userData.code}' 건네기`
     : held && held.userData.kind === 'gun' && game.nearVault(feetAtHand()) ? '[E] 총기 보관함에 넣기'
     : held ? (held.userData.kind === 'bag' && bench.near(feetAtHand()) ? `[E] '${held.userData.code}' 조립 시작` : '[E] 내려놓기')
-    : part ? `[E·클릭] ${part.name} 집기` : g ? (g.userData.kind === 'bag' ? `[E] '${g.userData.code}' 부품 가방 들기` : `[E] '${g.userData.code}' 총 들기`)
+    : part ? `[E·클릭] ${part.name} 집기` : g ? (g.userData.kind === 'bag' ? `[E] '${g.userData.code}' 부품 가방 들기` : g.userData.kind === 'repair' ? `[E] ${g.userData.name} 들기` : `[E] '${g.userData.code}' 총 들기`)
     : aimedShutter() ? (shutter.isDown ? '[E] 셔터 올리기' : '[E] 셔터 내리기') : game.call && aimedPhone() ? '[E] 전화 받기' : game.nearVault(feetAtHand()) && game.stock.length ? `[E] '${game.nextGun()}' 총 꺼내기` : '';
 }
 
@@ -728,8 +780,10 @@ function hintText() {
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
-  if (map && floor && street) {
-    if ($('start').hidden || renderer.xr.isPresenting) { game.tick(dt); if (!game.over) { police.tick(dt); if (!game.over) street.tick(dt); } }
+  if (map && floor && guide) {
+    if ($('start').hidden || renderer.xr.isPresenting) { game.tick(dt); if (!game.over) { police.tick(dt); if (!game.over) street.tick(dt); if (!game.over) repair.tick(dt); } guide.tick(dt); }
+    const up = rig.position.y > 20;
+    for (const k in zones) for (const o of zones[k]) o.visible = k === 'z6' ? !up : up;
     drawStatus();
     if (street.open) {                              // 고르려는 선택지를 밝게
       let i = -1;
@@ -766,5 +820,5 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 load().catch(e => { $('load').textContent = '불러오지 못했어요: ' + e.message; console.error(e); });
-window.dev = { tickFarPart, sitAtBench, get game() { return game; }, get police() { return police; }, get shutter() { return shutter; }, get street() { return street; }, get nav() { return nav; }, begin, restart, takeFromVault, handOver, hold, panel, settings };
+window.dev = { tickFarPart, sitAtBench, get game() { return game; }, get police() { return police; }, get shutter() { return shutter; }, get street() { return street; }, get repair() { return repair; }, get guide() { return guide; }, zones, get nav() { return nav; }, begin, restart, takeFromVault, handOver, hold, panel, settings };
 window.game = { rig, camera, renderer, scene, tryMove, goTo, groundAt, look: (y, p) => { yaw = y; pitch = p; }, get map() { return map; }, get portals() { return portals; }, grabbables, toggleHeld, useBag, drop, hands, get bench() { return bench; } };

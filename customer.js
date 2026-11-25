@@ -100,6 +100,7 @@ export class Customer {
       this.bend('UpperLeg' + k, (-a * 20 - lift * 5) * w, X);
       this.bend('LowerLeg' + k, (5 + lift * 34) * w, X);
       this.bend('Foot' + k, (a * 10 - lift * 14) * w, X);
+      if (this.carrying) { this.bend('UpperArm' + k, -28 + br * 0.8, X); this.bend('LowerArm' + k, -58, X); continue; }
       this.bend('UpperArm' + k, a * 24 * w + br * 0.8, X);
       this.bend('LowerArm' + k, -(8 + Math.max(0, -a) * 14) * w - 4, X);
     }

@@ -237,7 +237,7 @@ export class Game {
     const run = this.policeTodo();
     if (run) return run;
     if (this.call) return '전화를 받으세요';
-    const job = this.assembling();
+    const job = this.assembling() || this.repairTodo();
     if (job) return job;
     const c = this.customers.find(x => x.state !== 'leaving') ?? this.pending.find(p => p.what === 'customer');
     if (c && this.shopClosed() && !c.group) return '셔터를 올려 손님을 받으세요';
